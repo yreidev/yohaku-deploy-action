@@ -12,7 +12,8 @@ module.exports = {
       max_memory_restart: '512M',
       env: {
         NODE_ENV: 'production',
-        HOSTNAME: '127.0.0.1',
+        // Next standalone rewrites loop unless its runtime hostname is localhost.
+        HOSTNAME: 'localhost',
         PORT: process.env.PORT || 2323,
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',

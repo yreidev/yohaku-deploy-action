@@ -8,10 +8,11 @@ module.exports = {
       instances: 1,
       autorestart: true,
       watch: false,
-      max_memory_restart: '180M',
+      restart_delay: 3000,
+      max_memory_restart: '512M',
       env: {
         NODE_ENV: 'production',
-        HOSTNAME: '0.0.0.0',
+        HOSTNAME: '127.0.0.1',
         PORT: process.env.PORT || 2323,
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',

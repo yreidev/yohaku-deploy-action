@@ -1,19 +1,23 @@
 name: Build and Deploy
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  # schedule:
-  #   - cron: '0 3 * * *'
+    paths-ignore:
+      - build_hash
+  schedule:
+    - cron: '17 */6 * * *'
 
   repository_dispatch:
     types: [trigger-workflow]
 
-permissions: write-all
+permissions:
+  contents: write
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: yohaku-production
+  cancel-in-progress: false
 
 env:
   HASH_FILE: build_hash
@@ -25,14 +29,12 @@ jobs:
   prepare:
     name: Prepare
     runs-on: ubuntu-latest
-    if: ${{ github.event.head_commit.message != 'Update hash file' }}
-
     outputs:
       hash_content: ${{ steps.read_hash.outputs.hash_content }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Read HASH_FILE content
         id: read_hash
         run: |
@@ -46,13 +48,14 @@ jobs:
       canceled: ${{ steps.use_content.outputs.canceled }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          repository: innei-dev/Yohaku
+          repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.GH_PAT }} # `GH_PAT` is a secret that contains your PAT
           fetch-depth: 0
           lfs: true
           submodules: recursive
+          persist-credentials: false
 
       - name: Use content from prev job and compare
         id: use_content
@@ -83,26 +86,27 @@ jobs:
       sha_short: ${{ steps.store.outputs.sha_short }}
       branch: ${{ steps.store.outputs.branch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.GH_PAT }} # `GH_PAT` is a secret that contains your PAT
           fetch-depth: 0
           lfs: true
           submodules: recursive
+          persist-credentials: false
 
       - name: Checkout LFS objects
         run: git lfs checkout
-      - uses: pnpm/action-setup@v2
+      - uses: pnpm/action-setup@v6
 
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
       - uses: jongwooo/next-cache@v1
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
       - name: Build project
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
@@ -147,6 +151,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      - name: Checkout deployment configuration
+        uses: actions/checkout@v7
+
       # - name: Download artifact
       #   uses: actions/download-artifact@v4
       #   with:
@@ -165,41 +172,38 @@ jobs:
       - name: Prepare standalone PM2 config
         run: cp pm2/ecosystem.config.js ecosystem.config.js
 
-      - name: copy file via ssh password
-        uses: appleboy/scp-action@v0.1.7
+      - name: Copy release via SSH
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
-          password: ${{ secrets.PASSWORD }}
           key: ${{ secrets.KEY }}
           port: ${{ secrets.PORT }}
           source: 'release.zip'
           target: '/tmp/yohaku'
 
-      - name: copy PM2 config via ssh password
-        uses: appleboy/scp-action@v0.1.7
+      - name: Copy PM2 config via SSH
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
-          password: ${{ secrets.PASSWORD }}
           key: ${{ secrets.KEY }}
           port: ${{ secrets.PORT }}
           source: 'ecosystem.config.js'
           target: '/tmp/yohaku'
 
       - name: Exec deploy script with SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.2.5
 
         with:
           command_timeout: 5m
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
-          password: ${{ secrets.PASSWORD }}
           key: ${{ secrets.KEY }}
           port: ${{ secrets.PORT }}
           script: |
             set -e
-            source $HOME/.bashrc
+            export PATH="/usr/local/bin:/opt/ace/server/nodejs/24/bin:/usr/bin:/bin"
             basedir=$HOME/yohaku
             workdir=$basedir/${{ github.run_number }}
             mkdir -p $workdir
@@ -239,10 +243,9 @@ jobs:
     needs: [deploy, build]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
-          persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
-          fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
+          fetch-depth: 0
       # Get the commit version from the build job
       - name: Use outputs from build
         env:
@@ -263,7 +266,4 @@ jobs:
           git add ${{ env.HASH_FILE }}
           git commit -a -m "Update hash file"
       - name: Push changes
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ github.ref }}
+        run: git push

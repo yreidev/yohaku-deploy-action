@@ -106,7 +106,10 @@ jobs:
           cache: 'pnpm'
       - uses: jongwooo/next-cache@v1
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # The upstream repository can publish package manifest changes before
+        # its lockfile is regenerated. Resolve that drift in the ephemeral CI
+        # workspace instead of failing the deployment outright.
+        run: pnpm install --no-frozen-lockfile
       - name: Build project
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
